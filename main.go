@@ -26,7 +26,7 @@ import (
 	"github.com/foxcpp/go-assuan/pinentry"
 	"github.com/foxcpp/go-assuan/server"
 	pinentryBinary "github.com/gopasspw/pinentry"
-	"github.com/jorgelbg/pinentry-touchid/sensor"
+	"github.com/lujstn/pinentry-touchid/sensor"
 	"github.com/keybase/go-keychain"
 	touchid "github.com/lox/go-touchid"
 )

@@ -21,11 +21,11 @@ builds:
 brews:
   -
     tap:
-      owner: jorgelbg
+      owner: lujstn
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
 
-    homepage: "https://github.com/jorgelbg/pinentry-touchid"
+    homepage: "https://github.com/lujstn/pinentry-touchid"
 
     caveats: |
       ➡️  Ensure that pinentry-mac is the default pinentry program:

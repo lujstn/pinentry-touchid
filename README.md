@@ -4,6 +4,17 @@
 >
 > These fixes resolve errors including "error: gpg failed to sign the data", "failed to unprotect the secret key: Operation cancelled", and "You may want to update to a newer pinentry".
 >
+> **📦 Installation via Homebrew:**
+> ```bash
+> # Install from my tap (recommended)
+> brew tap lujstn/tap
+> brew install pinentry-touchid
+> 
+> # Configure gpg-agent
+> echo "pinentry-program $(brew --prefix)/opt/pinentry-touchid/bin/pinentry-touchid" >> ~/.gnupg/gpg-agent.conf
+> gpgconf --kill gpg-agent
+> ```
+>
 > Key changes:
 > - ✅ **GETINFO support** - Implements `GETINFO flavor/version/pid/ttyinfo` commands required by GnuPG 2.4+
 > - ✅ **Keychain permission handling** - Properly handles macOS keychain access permissions for entries created by pinentry-mac
