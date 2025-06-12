@@ -18,11 +18,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/enescakir/emoji"
 	"github.com/foxcpp/go-assuan/common"
 	"github.com/foxcpp/go-assuan/pinentry"
+	"github.com/foxcpp/go-assuan/server"
 	pinentryBinary "github.com/gopasspw/pinentry"
 	"github.com/jorgelbg/pinentry-touchid/sensor"
 	"github.com/keybase/go-keychain"
@@ -44,6 +46,9 @@ const (
 	DefaultLogFilename = "pinentry-touchid.log"
 	defaultLoggerFlags = log.Ldate | log.Ltime | log.Lshortfile
 )
+
+// version is filled by -ldflags "-X main.version=$(git describe --tags)"
+var version = "devel"
 
 var (
 	// DefaultLogLocation is the location of the log file
@@ -84,6 +89,32 @@ func checkEntryInKeychain(label string) (bool, error) {
 	}
 
 	return len(results) == 1, nil
+}
+
+// ensureKeychainAccess attempts to access the keychain entry to trigger the macOS permission
+// dialog if needed. It doesn't return the actual password data.
+func ensureKeychainAccess(label string, logger *log.Logger) error {
+	query := keychain.NewItem()
+	query.SetSecClass(keychain.SecClassGenericPassword)
+	query.SetLabel(label)
+	query.SetMatchLimit(keychain.MatchLimitOne)
+	query.SetReturnData(false)
+	query.SetReturnAttributes(true)
+	query.SetReturnRef(true) // This may trigger the permission dialog
+
+	results, err := keychain.QueryItem(query)
+	if err != nil {
+		logger.Printf("Failed to ensure keychain access: %s", err)
+		return err
+	}
+
+	if len(results) == 0 {
+		logger.Printf("No keychain entry found when ensuring access")
+		return errEmptyResults
+	}
+
+	logger.Printf("Successfully ensured keychain access permission")
+	return nil
 }
 
 // KeychainClient represents a single instance of a pinentry server
@@ -257,13 +288,23 @@ func (c KeychainClient) Msg(pinentry.Settings) *common.Error {
 // GetPIN executes the main logic for returning a password/pin back to the gpg-agent
 func GetPIN(authFn AuthFunc, promptFn PromptFunc, logger *log.Logger) GetPinFunc {
 	return func(s pinentry.Settings) (string, *common.Error) {
+		logger.Printf("GETPIN called with desc: %s", s.Desc)
 		matches := emailRegex.FindStringSubmatch(s.Desc)
 		name := ""
 		email := ""
 
 		if len(matches) > 2 {
-			name = strings.Split(matches[1], " <")[0]
+			// matches[1] contains the full string like "Name (comment) <email>"
+			// We need to extract just the name without the comment
+			fullName := strings.Split(matches[1], " <")[0]
+			// Remove any parenthetical comments
+			if idx := strings.Index(fullName, " ("); idx != -1 {
+				name = fullName[:idx]
+			} else {
+				name = fullName
+			}
 			email = matches[2]
+			logger.Printf("Parsed name: %s, email: %s", name, email)
 		}
 
 		keyID := ""
@@ -289,11 +330,13 @@ func GetPIN(authFn AuthFunc, promptFn PromptFunc, logger *log.Logger) GetPinFunc
 		}
 
 		keychainLabel := fmt.Sprintf("%s <%s> (%s)", name, email, keyID)
+		logger.Printf("Checking for keychain entry: %s", keychainLabel)
 		exists, err := checkEntryInKeychain(keychainLabel)
 		if err != nil {
 			logger.Printf("error checking entry in keychain: %s", err)
 			return "", assuanError(err)
 		}
+		logger.Printf("Keychain entry exists: %v", exists)
 
 		// If the entry is not found in the keychain, we trigger `pinentry-mac` with the option
 		// to save the pin in the keychain.
@@ -336,13 +379,29 @@ func GetPIN(authFn AuthFunc, promptFn PromptFunc, logger *log.Logger) GetPinFunc
 				err = storePasswordInKeychain(keychainLabel, keyInfo, pin)
 
 				if err == keychain.ErrorDuplicateItem {
-					logger.Printf("Duplicated entry in the keychain")
+					logger.Printf("Keychain entry already exists, will need permission on next access")
+					// Don't treat duplicate as fatal - the entry exists, we just need permission
+				} else if err != nil {
+					logger.Printf("Error storing password in keychain: %s", err)
 					return "", assuanError(err)
 				}
 			} else {
 				logger.Printf("The keychain entry was created by pinentry-mac. Permission will be required on next run.")
 			}
 
+			return string(pin), nil
+		}
+
+		// Entry exists - ensure we have permission to access it before Touch ID
+		logger.Printf("Keychain entry exists, ensuring access permission...")
+		if err := ensureKeychainAccess(keychainLabel, logger); err != nil {
+			logger.Printf("Cannot ensure keychain access, falling back to pinentry-mac: %s", err)
+			// Fall back to pinentry-mac if we can't get permission
+			pin, err := promptFn(s)
+			if err != nil {
+				logger.Printf("Error calling fallback pinentry program: %s", err)
+				return "", assuanError(err)
+			}
 			return string(pin), nil
 		}
 
@@ -359,7 +418,8 @@ func GetPIN(authFn AuthFunc, promptFn PromptFunc, logger *log.Logger) GetPinFunc
 
 		password, err := passwordFromKeychain(keychainLabel)
 		if err != nil {
-			log.Printf("Error fetching password from Keychain %s", err)
+			logger.Printf("Error fetching password from Keychain: %s", err)
+			return "", assuanError(err)
 		}
 
 		return password, nil
@@ -419,6 +479,110 @@ func fixPINBinary(oldPath string) error {
 	return nil
 }
 
+// getInfoHandler handles GETINFO commands
+func getInfoHandler(pipe io.ReadWriter, _ interface{}, params string) *common.Error {
+	if params == "" {
+		return &common.Error{
+			Src:     common.ErrSrcAssuan,
+			Code:    common.ErrAssInvValue,
+			SrcName: "assuan",
+			Message: "missing argument",
+		}
+	}
+
+	var data string
+	switch params {
+	case "flavor":
+		data = "touchid"
+	case "version":
+		data = version
+	case "pid":
+		data = strconv.Itoa(os.Getpid())
+	case "ttyinfo":
+		// ttyinfo := "<tty> <ownerpid> <term>"
+		ttyinfo := fmt.Sprintf("%s %d %s",
+			os.Getenv("GPG_TTY"),
+			os.Getppid(),
+			os.Getenv("TERM"))
+		data = strings.TrimSpace(ttyinfo)
+	default:
+		return &common.Error{
+			Src:     common.ErrSrcAssuan,
+			Code:    common.ErrNotFound,
+			SrcName: "assuan",
+			Message: "unknown value",
+		}
+	}
+
+	common.WriteData(pipe, []byte(data))
+	return nil
+}
+
+// serveWithCustomHandlers extends pinentry.Serve with custom command handlers
+func serveWithCustomHandlers(callbacks pinentry.Callbacks, greeting string) error {
+	info := pinentry.ProtoInfo
+	info.Greeting = greeting
+
+	// Add the GETINFO handler
+	info.Handlers["GETINFO"] = getInfoHandler
+
+	// Add the standard pinentry handlers
+	info.Handlers["GETPIN"] = func(pipe io.ReadWriter, state interface{}, _ string) *common.Error {
+		if callbacks.GetPIN == nil {
+			return &common.Error{
+				Src:     common.ErrSrcPinentry,
+				Code:    common.ErrNotImplemented,
+				SrcName: "pinentry",
+				Message: "GETPIN op is not supported",
+			}
+		}
+		pass, err := callbacks.GetPIN(*state.(*pinentry.Settings))
+		if err != nil {
+			return err
+		}
+		common.WriteData(pipe, []byte(pass))
+		return nil
+	}
+
+	info.Handlers["CONFIRM"] = func(pipe io.ReadWriter, state interface{}, _ string) *common.Error {
+		if callbacks.Confirm == nil {
+			return &common.Error{
+				Src:     common.ErrSrcPinentry,
+				Code:    common.ErrNotImplemented,
+				SrcName: "pinentry",
+				Message: "CONFIRM op is not supported",
+			}
+		}
+		v, err := callbacks.Confirm(*state.(*pinentry.Settings))
+		if err != nil {
+			return err
+		}
+		if !v {
+			return &common.Error{
+				Src:     common.ErrSrcPinentry,
+				Code:    common.ErrCanceled,
+				SrcName: "pinentry",
+				Message: "operation canceled",
+			}
+		}
+		return nil
+	}
+
+	info.Handlers["MESSAGE"] = func(pipe io.ReadWriter, state interface{}, _ string) *common.Error {
+		if callbacks.Msg == nil {
+			return &common.Error{
+				Src:     common.ErrSrcPinentry,
+				Code:    common.ErrNotImplemented,
+				SrcName: "pinentry",
+				Message: "MESSAGE op is not supported",
+			}
+		}
+		return callbacks.Msg(*state.(*pinentry.Settings))
+	}
+
+	return server.ServeStdin(info)
+}
+
 func main() {
 	flag.Parse()
 	if !sensor.IsTouchIDAvailable() {
@@ -472,7 +636,7 @@ func main() {
 		Msg:     client.Msg,
 	}
 
-	if err := pinentry.Serve(callbacks, "Hi from pinentry-touchid!"); err != nil && err != io.EOF {
+	if err := serveWithCustomHandlers(callbacks, "Hi from pinentry-touchid!"); err != nil && err != io.EOF {
 		fmt.Fprintf(os.Stderr, "Pinentry Serve returned error: %v\n", err)
 		os.Exit(-1)
 	}

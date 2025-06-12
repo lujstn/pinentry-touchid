@@ -5,10 +5,15 @@
 package main
 
 import (
+	"bytes"
 	"io/ioutil"
 	"log"
+	"os"
+	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/foxcpp/go-assuan/common"
 	"github.com/foxcpp/go-assuan/pinentry"
 	"github.com/keybase/go-keychain"
 )
@@ -166,4 +171,76 @@ func cleanKeychain(label string) error {
 	query.SetReturnData(true)
 
 	return keychain.DeleteItem(query)
+}
+
+func TestGetInfoHandler(t *testing.T) {
+	tests := []struct {
+		name      string
+		params    string
+		wantData  string
+		wantError bool
+		errorCode int
+	}{
+		{
+			name:      "flavor",
+			params:    "flavor",
+			wantData:  "touchid",
+			wantError: false,
+		},
+		{
+			name:      "version",
+			params:    "version", 
+			wantData:  version,
+			wantError: false,
+		},
+		{
+			name:      "pid",
+			params:    "pid",
+			wantData:  strconv.Itoa(os.Getpid()),
+			wantError: false,
+		},
+		{
+			name:      "ttyinfo",
+			params:    "ttyinfo",
+			wantData:  strings.TrimSpace(os.Getenv("GPG_TTY") + " " + strconv.Itoa(os.Getppid()) + " " + os.Getenv("TERM")),
+			wantError: false,
+		},
+		{
+			name:      "unknown",
+			params:    "unknown",
+			wantError: true,
+			errorCode: int(common.ErrNotFound),
+		},
+		{
+			name:      "empty",
+			params:    "",
+			wantError: true,
+			errorCode: int(common.ErrAssInvValue),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := getInfoHandler(&buf, nil, tt.params)
+
+			if tt.wantError {
+				if err == nil {
+					t.Errorf("expected error but got nil")
+				} else if int(err.Code) != tt.errorCode {
+					t.Errorf("expected error code %d but got %d", tt.errorCode, int(err.Code))
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				
+				// Check that data was written
+				output := buf.String()
+				if !strings.Contains(output, tt.wantData) {
+					t.Errorf("expected output to contain %q but got %q", tt.wantData, output)
+				}
+			}
+		})
+	}
 }

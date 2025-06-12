@@ -1,11 +1,24 @@
 # pinentry-touchid
 
+> **🚀 This fork includes critical fixes for GnuPG 2.4+ compatibility**
+>
+> These fixes resolve errors including "error: gpg failed to sign the data", "failed to unprotect the secret key: Operation cancelled", and "You may want to update to a newer pinentry".
+>
+> Key changes:
+> - ✅ **GETINFO support** - Implements `GETINFO flavor/version/pid/ttyinfo` commands required by GnuPG 2.4+
+> - ✅ **Keychain permission handling** - Properly handles macOS keychain access permissions for entries created by pinentry-mac
+> - ✅ **Name parsing fix** - Correctly strips GPG key comments to match existing keychain entries
+> - ✅ **Duplicate entry handling** - Gracefully handles duplicate keychain entries instead of failing
+>
+
 <p align="center">
     <img class="center" src="https://user-images.githubusercontent.com/1291846/127916161-5803ca98-c0a2-4d1f-8479-860f4d7edc98.png" width="300" alt="pinentry-touchid logo"/>
 </p>
 
 Custom GPG pinentry program for macOS that allows using Touch ID for fetching the password from the
 macOS keychain.
+
+> **Compatible with GnuPG 2.4+** - This version includes support for the GETINFO commands required by modern GnuPG versions.
 
 > Macbook Pro devices without Touch ID are currently not supported. These devices > lack a Touch ID
 > sensor and while the alternative offered by Apple is to use (if available) an Apple Watch, this
