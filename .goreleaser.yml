@@ -1,3 +1,5 @@
+version: 2
+
 project_name: pinentry-touchid
 
 before:
@@ -20,7 +22,7 @@ builds:
 # Generate/update a homebrew formula
 brews:
   -
-    tap:
+    repository:
       owner: lujstn
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
@@ -57,8 +59,7 @@ brews:
       bin.install "pinentry-touchid"
 
 archives:
-- replacements:
-    darwin: macos
+- name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: 'checksums.txt'
