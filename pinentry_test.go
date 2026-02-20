@@ -6,9 +6,11 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -171,6 +173,40 @@ func cleanKeychain(label string) error {
 	query.SetReturnData(true)
 
 	return keychain.DeleteItem(query)
+}
+
+func TestWithLoggerDoesNotPanic(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	client := WithLogger(logger)
+	if client.logger == nil {
+		t.Fatal("expected logger to be set")
+	}
+}
+
+func TestNewGracefulLogFileHandling(t *testing.T) {
+	// Save and restore DefaultLogLocation
+	origLocation := DefaultLogLocation
+	defer func() { DefaultLogLocation = origLocation }()
+
+	// Point to an unwritable path
+	dir := t.TempDir()
+	unwritable := filepath.Join(dir, "noperm")
+	if err := os.Mkdir(unwritable, 0000); err != nil {
+		t.Fatalf("failed to create unwritable dir: %v", err)
+	}
+	DefaultLogLocation = filepath.Join(unwritable, "test.log")
+
+	// New() should not panic — it should fall back to stderr
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("New() panicked when log file is unwritable: %v", r)
+		}
+	}()
+
+	client := New()
+	if client.logger == nil {
+		t.Fatal("expected logger to be set even with unwritable log path")
+	}
 }
 
 func TestGetInfoHandler(t *testing.T) {

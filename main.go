@@ -63,6 +63,7 @@ var (
 
 	check      = flag.Bool("check", false, "Verify that pinentry-mac is present in the system.")
 	fixSymlink = flag.Bool("fix", false, "Set up pinentry-mac as the fallback PIN entry program.")
+	selfTest   = flag.Bool("self-test", false, "Run startup diagnostics and report status.")
 	_          = flag.String("display", "", "Set the X display (unused)")
 )
 
@@ -133,18 +134,20 @@ func New() KeychainClient {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		file, err := os.Create(path)
 		if err != nil {
-			panic("Couldn't create log file")
+			logger = log.New(os.Stderr, "pinentry-touchid: ", defaultLoggerFlags)
+			logger.Printf("Warning: could not create log file %s: %v, logging to stderr", path, err)
+		} else {
+			logger = log.New(file, "", defaultLoggerFlags)
 		}
-
-		logger = log.New(file, "", defaultLoggerFlags)
 	} else {
 		// append to the existing log file
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 		if err != nil {
-			panic(err)
+			logger = log.New(os.Stderr, "pinentry-touchid: ", defaultLoggerFlags)
+			logger.Printf("Warning: could not open log file %s: %v, logging to stderr", path, err)
+		} else {
+			logger = log.New(file, "", defaultLoggerFlags)
 		}
-
-		logger = log.New(file, "", defaultLoggerFlags)
 	}
 
 	logger.Print("Ready!")
@@ -601,6 +604,47 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Pinentry Serve returned error: %v\n", err)
 			os.Exit(-1)
 		}
+		return
+	}
+
+	if *selfTest {
+		ok := true
+
+		// Check Touch ID
+		if sensor.IsTouchIDAvailable() {
+			fmt.Fprintf(os.Stdout, "Touch ID:    available\n")
+		} else {
+			fmt.Fprintf(os.Stdout, "Touch ID:    unavailable\n")
+			ok = false
+		}
+
+		// Check log file writability
+		logPath := filepath.Clean(DefaultLogLocation)
+		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			fmt.Fprintf(os.Stdout, "Log file:    %s (not writable: %v)\n", logPath, err)
+			ok = false
+		} else {
+			f.Close()
+			fmt.Fprintf(os.Stdout, "Log file:    %s (writable)\n", logPath)
+		}
+
+		// Check fallback pinentry binary
+		fallbackPath, err := validatePINBinary()
+		if err != nil {
+			fmt.Fprintf(os.Stdout, "Fallback:    %s (%v)\n", fallbackPath, err)
+			ok = false
+		} else {
+			fmt.Fprintf(os.Stdout, "Fallback:    %s\n", fallbackPath)
+		}
+
+		// Version
+		fmt.Fprintf(os.Stdout, "Version:     %s\n", version)
+
+		if !ok {
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 
 	if *fixSymlink {
