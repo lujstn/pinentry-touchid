@@ -1,27 +1,5 @@
 # pinentry-touchid
 
-> **🚀 This fork includes critical fixes for GnuPG 2.4+ compatibility**
->
-> These fixes resolve errors including "error: gpg failed to sign the data", "failed to unprotect the secret key: Operation cancelled", and "You may want to update to a newer pinentry".
->
-> **📦 Installation via Homebrew:**
-> ```bash
-> # Install from my tap (recommended)
-> brew tap lujstn/tap
-> brew install pinentry-touchid
-> 
-> # Configure gpg-agent
-> echo "pinentry-program $(brew --prefix)/opt/pinentry-touchid/bin/pinentry-touchid" >> ~/.gnupg/gpg-agent.conf
-> gpgconf --kill gpg-agent
-> ```
->
-> Key changes:
-> - ✅ **GETINFO support** - Implements `GETINFO flavor/version/pid/ttyinfo` commands required by GnuPG 2.4+
-> - ✅ **Keychain permission handling** - Properly handles macOS keychain access permissions for entries created by pinentry-mac
-> - ✅ **Name parsing fix** - Correctly strips GPG key comments to match existing keychain entries
-> - ✅ **Duplicate entry handling** - Gracefully handles duplicate keychain entries instead of failing
->
-
 <p align="center">
     <img class="center" src="https://user-images.githubusercontent.com/1291846/127916161-5803ca98-c0a2-4d1f-8479-860f4d7edc98.png" width="300" alt="pinentry-touchid logo"/>
 </p>
@@ -29,7 +7,7 @@
 Custom GPG pinentry program for macOS that allows using Touch ID for fetching the password from the
 macOS keychain.
 
-> **Compatible with GnuPG 2.4+** - This version includes support for the GETINFO commands required by modern GnuPG versions.
+> **Update (2026-02-20): Now fully compatible with GnuPG 2.4+** - This version includes support for the GETINFO commands required by modern GnuPG versions.
 
 > Macbook Pro devices without Touch ID are currently not supported. These devices > lack a Touch ID
 > sensor and while the alternative offered by Apple is to use (if available) an Apple Watch, this
@@ -235,13 +213,21 @@ new one.
 
 ## Tested on
 
-I've tested `pinentry-touchid` in the following combinations of devices and macOS versions:
+`pinentry-touchid` has been tested on the following combinations of devices and macOS versions:
 
 * MacBook Pro (15-inch, 2018), macOS Catalina - 10.15.7
 * MacBook Pro (15-inch, 2018), macOS Big Sur - 11.4, 11.5.0, 11.5.1
 * MacBook Pro (16-inch, Late 2019), macOS Big Sur - 11.4, 11.5.1
 * MacBook Pro (16-inch, Late 2021), macOS Monterey - 12.2
+* MacBook Pro (16-inch, 2023), macOS Sequoia - 15.7.2
+* MacBook Pro (16-inch, 2023), macOS Tahoe - 26.2
+* MacBook Pro (16-inch, 2024), macOS Tahoe - 26.2
 
 ## Links
 
 * The project icon is taken from <a href="https://icons8.com/icon/BebbEec6QUjh/touch-id">Touch ID icon by Icons8</a>.
+
+## Credits
+
+Built by [Jorge Luis Betancourt (@jorgelbg)](https://github.com/jorgelbg), and rebuilt for GnuPG 2.4 by [Lucas Johnston Kurilov (@lujstn)](https://github.com/lujstn).
+

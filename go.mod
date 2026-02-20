@@ -1,4 +1,4 @@
-module github.com/lujstn/pinentry-touchid
+module github.com/jorgelbg/pinentry-touchid
 
 go 1.16
 
